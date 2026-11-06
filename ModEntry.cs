@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Combat;
 using MegaCrit.Sts2.Core.Modding;
 
 namespace Undo;
@@ -13,5 +14,6 @@ public static class ModEntry
         RuntimeHelpers.RunClassConstructor(typeof(UndoService).TypeHandle);
         RuntimeHelpers.RunClassConstructor(typeof(RecordInitialStatePatch).TypeHandle);
         new Harmony("james.sts2.undo").PatchAll(typeof(ModEntry).Assembly);
+        CombatManager.Instance.TurnStarted += UndoService.RecordTurnStart;
     }
 }

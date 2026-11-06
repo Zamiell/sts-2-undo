@@ -103,6 +103,57 @@ static void Check(string name, bool passed)
     Check("a checkpoint with actions is kept", history.Plan(false, "a")!.Target == fight);
 }
 
+// Restarting combat discards its actions without losing the previous room.
+{
+    var history = new UndoHistory();
+    var previous = Save(0);
+    var fight = Save(1);
+    history.Capture(previous);
+    history.Capture(fight);
+    history.RecordAction(3, clean: false, progress: 10);
+    history.RecordAction(7, clean: true, progress: 20);
+    history.Commit(new UndoPlan(fight, null));
+    Check("restart keeps the current checkpoint", history.Top == fight);
+    Check("restart clears combat progress", fight.Cuts.Count == 0 && fight.Progress.Count == 0 && !fight.NeedsReload);
+    Check("undo after restart can return to the previous room", history.Plan(true, null)!.Target == previous);
+    history.RecordAction(2, clean: true, progress: 5);
+    Check("actions after restart can be undone", history.Plan(true, null) is { Target: var target, KeepEvents: 2 }
+        && target == fight);
+}
+
+// Restarting a turn preserves earlier turns and remains repeatable at the turn boundary.
+{
+    var history = new UndoHistory();
+    Check("no turn to restart without a checkpoint", history.PlanRestartTurn() == null);
+    var fight = Save(1);
+    history.Capture(fight);
+    Check("no turn to restart before a player turn starts", history.PlanRestartTurn() == null);
+    history.RecordTurnStart(0);
+    Check("first turn replays zero events", history.PlanRestartTurn()!.KeepEvents == 0);
+    history.RecordAction(2, clean: true, progress: 10);
+    history.RecordAction(5, clean: true, progress: 20);
+    history.RecordTurnStart(9);
+    history.RecordAction(9, clean: true, progress: 30);
+    history.RecordAction(12, clean: true, progress: 40);
+    var plan = history.PlanRestartTurn()!;
+    Check("restart targets this turn rather than the latest action", plan.Target == fight && plan.KeepEvents == 9);
+    history.Commit(plan);
+    Check("restart preserves earlier turns' actions", fight.Cuts.SequenceEqual(new[] { 2, 5 })
+        && fight.Progress.Keys.Order().SequenceEqual(new[] { 2, 5 }));
+    Check("restart preserves its own turn boundary", history.PlanRestartTurn()!.KeepEvents == 9);
+    history.Commit(history.PlanRestartTurn()!);
+    Check("restarting an untouched turn does not rewind another turn", history.PlanRestartTurn()!.KeepEvents == 9);
+
+    history.Commit(history.Plan(true, null)!);
+    Check("undoing into a previous turn removes future turn boundaries", history.PlanRestartTurn()!.KeepEvents == 0);
+    history.RecordTurnStart(8);
+    Check("a new timeline records its new turn boundary", history.PlanRestartTurn()!.KeepEvents == 8);
+    history.Commit(new UndoPlan(fight, null));
+    Check("restarting combat forgets all turn boundaries", history.PlanRestartTurn() == null);
+    history.RecordTurnStart(0);
+    Check("the reloaded combat records its first turn", history.PlanRestartTurn()!.KeepEvents == 0);
+}
+
 // Starting another run forgets the old one.
 {
     var history = new UndoHistory();

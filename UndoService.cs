@@ -47,6 +47,28 @@ internal static class UndoService
 
     public static bool CanUndo => Ready && CurrentPlan() != null;
 
+    public static bool CanRestartCombat => Ready && CombatManager.Instance.IsInProgress
+        && RunManager.Instance.DebugOnlyGetState()?.CurrentRoom is CombatRoom { ParentEventId: null }
+        && History.Top != null;
+
+    public static bool CanRestartTurn => CanRestartCombat
+        && CombatManager.Instance.DebugOnlyGetState()?.CurrentSide == CombatSide.Player
+        && !CombatManager.Instance.EndingPlayerTurnPhaseOne && !CombatManager.Instance.EndingPlayerTurnPhaseTwo
+        && RunManager.Instance.ActionQueueSynchronizer.CombatState == ActionSynchronizerCombatState.PlayPhase
+        && RunManager.Instance.ActionQueueSet.IsEmpty && RunManager.Instance.ActionExecutor.CurrentlyRunningAction == null
+        && !RunManager.Instance.ActionExecutor.IsPaused
+        && History.Top?.Replay is CombatReplay && History.PlanRestartTurn() != null;
+
+    public static void RecordTurnStart(CombatState state)
+    {
+        if (!Busy && IsSingleplayer && state.CurrentSide == CombatSide.Player
+            && RunManager.Instance.DebugOnlyGetState()?.CurrentRoom is CombatRoom { ParentEventId: null }
+            && History.Top?.Replay is CombatReplay replay)
+        {
+            History.RecordTurnStart(replay.events.Count);
+        }
+    }
+
     private static bool Ready => !Busy && IsSingleplayer && !RunManager.Instance.IsCleaningUp && NRun.Instance != null
         && NGame.Instance is { Transition.InTransition: false }
         && !NRun.Instance.GlobalUi.MapScreen.IsTraveling
@@ -68,6 +90,29 @@ internal static class UndoService
         {
             return;
         }
+        await Restore(plan);
+    }
+
+    public static async Task RestartCombat()
+    {
+        if (!CanRestartCombat || History.Top is not { } checkpoint)
+        {
+            return;
+        }
+        await Restore(new UndoPlan(checkpoint, null));
+    }
+
+    public static async Task RestartTurn()
+    {
+        if (!CanRestartTurn || History.PlanRestartTurn() is not { } plan)
+        {
+            return;
+        }
+        await Restore(plan);
+    }
+
+    private static async Task Restore(UndoPlan plan)
+    {
         Busy = true;
         var replay = plan.KeepEvents.HasValue ? plan.Target.Replay as CombatReplay : null;
         var events = replay?.events.Take(plan.KeepEvents!.Value).ToList();
@@ -85,6 +130,7 @@ internal static class UndoService
         string? message = null;
         try
         {
+            await game.ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
             if (SaveManager.Instance.CurrentRunSaveTask is { } pending)
             {
                 await pending;
@@ -214,6 +260,13 @@ internal static class UndoService
         {
             NRun.Instance!.GlobalUi.MapScreen.Drawings.LoadDrawings(run.MapDrawingsToLoad);
             run.MapDrawingsToLoad = null;
+        }
+        // Turn-start notifications are suppressed during restoration; a full reload starts fresh history.
+        if (replay == null && state.CurrentRoom is CombatRoom { ParentEventId: null }
+            && CombatManager.Instance.DebugOnlyGetState()?.CurrentSide == CombatSide.Player
+            && checkpoint.Replay is CombatReplay restartedReplay)
+        {
+            History.RecordTurnStart(restartedReplay.events.Count);
         }
         await game.Transition.FadeIn();
         return divergence.Found ? "Undo may not have restored this exactly" : null;

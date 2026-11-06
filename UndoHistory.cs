@@ -16,6 +16,9 @@ internal sealed class Checkpoint(long runStart, int location, string save, strin
     /// <summary>Replay event indexes of each undoable action, oldest first.</summary>
     public List<int> Cuts { get; } = [];
 
+    /// <summary>Replay event indexes at the start of each playable player turn.</summary>
+    public List<int> TurnStarts { get; } = [];
+
     /// <summary>
     /// For each player action's event index, how far the combat had progressed when it was played, in checksums
     /// generated. A replay must not submit the action before reaching that point, or the game can reject it as too early.
@@ -99,6 +102,18 @@ internal sealed class UndoHistory
         return new(previous, previous.Cuts.Count > 0 ? previous.Cuts[^1] : null);
     }
 
+    public void RecordTurnStart(int eventIndex)
+    {
+        if (Top is { } top && (top.TurnStarts.Count == 0 || top.TurnStarts[^1] != eventIndex))
+        {
+            top.TurnStarts.Add(eventIndex);
+        }
+    }
+
+    public UndoPlan? PlanRestartTurn() => Top is { TurnStarts.Count: > 0 } top
+        ? new(top, top.TurnStarts[^1])
+        : null;
+
     public void Commit(UndoPlan plan)
     {
         _checkpoints.RemoveRange(_checkpoints.IndexOf(plan.Target) + 1,
@@ -106,6 +121,14 @@ internal sealed class UndoHistory
         plan.Target.NeedsReload = false;
         var kept = plan.KeepEvents ?? 0;
         plan.Target.Cuts.RemoveAll(cut => cut >= kept);
+        if (plan.KeepEvents.HasValue)
+        {
+            plan.Target.TurnStarts.RemoveAll(start => start > kept);
+        }
+        else
+        {
+            plan.Target.TurnStarts.Clear();
+        }
         foreach (var index in plan.Target.Progress.Keys.Where(index => index >= kept).ToList())
         {
             plan.Target.Progress.Remove(index);

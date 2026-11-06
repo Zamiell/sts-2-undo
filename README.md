@@ -2,6 +2,10 @@
 
 A Slay the Spire 2 mod that adds an **Undo** button to the top-right of the screen, below the top bar. It rewinds a singleplayer run to before your last action. Press it repeatedly to go further back.
 
+The **Restart Turn** button beneath Undo rewinds to the start of your current playable turn, preserving earlier turns. It is enabled while your turn is idle.
+
+The **Restart Combat** button underneath resets the current fight to its room-entry checkpoint without replaying any actions. Both restart buttons are disabled outside combat and for event-triggered fights.
+
 ## What it undoes
 
 | Where you are | What Undo does |
