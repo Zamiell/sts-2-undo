@@ -1,0 +1,12 @@
+{
+  "id": "Undo",
+  "name": "Undo",
+  "author": "James",
+  "description": "Adds an Undo button that rewinds a singleplayer run to before your last action, such as playing a card, ending your turn, or drinking a potion.",
+  "version": "0.1.0",
+  "min_game_version": "0.111.0",
+  "has_pck": false,
+  "has_dll": true,
+  "dependencies": [],
+  "affects_gameplay": true
+}
